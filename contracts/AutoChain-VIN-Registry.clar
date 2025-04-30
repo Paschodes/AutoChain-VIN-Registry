@@ -33,13 +33,17 @@
   {count: uint}
 )
 
+;; Data variable to track current block for testing purposes
+(define-data-var current-block uint u0)
+
 ;; Function to register a new vehicle
 (define-public (register-vehicle 
                 (vin (string-ascii 17)) 
                 (manufacturer (string-ascii 50)) 
                 (model (string-ascii 50)) 
                 (year uint))
-  (let ((exists (map-get? vehicles {vin: vin})))
+  (let ((exists (map-get? vehicles {vin: vin}))
+        (curr-block (var-get current-block)))
     (asserts! (is-none exists) (err u1)) ;; Error code 1: VIN already registered
     (map-set vehicles 
       {vin: vin} 
@@ -48,7 +52,7 @@
         manufacturer: manufacturer,
         model: model,
         year: year,
-        last-update: block-height
+        last-update: curr-block
       }
     )
     (map-set service-entry-count {vin: vin} {count: u0})
@@ -65,7 +69,8 @@
                 (notes (string-ascii 500)))
   (let ((vehicle (map-get? vehicles {vin: vin}))
         (entry-count-data (default-to {count: u0} (map-get? service-entry-count {vin: vin})))
-        (entry-count (get count entry-count-data)))
+        (entry-count (get count entry-count-data))
+        (curr-block (var-get current-block)))
     (asserts! (is-some vehicle) (err u2)) ;; Error code 2: Vehicle not found
     (asserts! (or (is-eq tx-sender (get owner (unwrap-panic vehicle))) 
                   (is-eq tx-sender (var-get admin))) 
@@ -84,7 +89,7 @@
     (map-set service-entry-count {vin: vin} {count: (+ entry-count u1)})
     (map-set vehicles 
       {vin: vin} 
-      (merge (unwrap-panic vehicle) {last-update: block-height})
+      (merge (unwrap-panic vehicle) {last-update: curr-block})
     )
     (ok entry-count)
   )
@@ -92,7 +97,8 @@
 
 ;; Function to transfer vehicle ownership
 (define-public (transfer-ownership (vin (string-ascii 17)) (new-owner principal))
-  (let ((vehicle (map-get? vehicles {vin: vin})))
+  (let ((vehicle (map-get? vehicles {vin: vin}))
+        (curr-block (var-get current-block)))
     (asserts! (is-some vehicle) (err u2)) ;; Error code 2: Vehicle not found
     (asserts! (is-eq tx-sender (get owner (unwrap-panic vehicle))) (err u3)) ;; Error code 3: Not authorized
     
@@ -101,10 +107,19 @@
       (merge (unwrap-panic vehicle) 
              {
                owner: new-owner,
-               last-update: block-height
+               last-update: curr-block
              }
       )
     )
+    (ok true)
+  )
+)
+
+;; Function to update the current block (for testing purposes)
+(define-public (update-block (new-block uint))
+  (begin
+    (asserts! (is-eq tx-sender (var-get admin)) (err u3)) ;; Error code 3: Not authorized
+    (var-set current-block new-block)
     (ok true)
   )
 )
@@ -122,4 +137,9 @@
 ;; Read-only function to get service entry count
 (define-read-only (get-service-count (vin (string-ascii 17)))
   (default-to {count: u0} (map-get? service-entry-count {vin: vin}))
+)
+
+;; Read-only function to get current block
+(define-read-only (get-current-block)
+  (var-get current-block)
 )
